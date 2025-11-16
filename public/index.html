@@ -6,21 +6,63 @@
   <style>
     body {
       font-family: Arial, sans-serif;
-      background: #1e1e1e;
+      background: #121212;
       color: white;
       margin: 0;
       padding: 20px;
-    }
-
-    h2 {
-      margin-bottom: 10px;
-    }
-
-    #userList {
       display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    .controls {
+      width: 250px;
+      background: #1f1f1f;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.5);
+    }
+
+    .controls button {
+      width: 100%;
+      padding: 12px;
+      margin: 8px 0;
+      border: none;
+      background: #333;
+      color: white;
+      cursor: pointer;
+      border-radius: 8px;
+      font-size: 15px;
+      transition: 0.2s;
+    }
+
+    .controls button:hover {
+      background: #555;
+    }
+
+    .slider {
+      width: 100%;
+      margin-top: 10px;
+    }
+
+    .statusBox {
       margin-top: 15px;
+      padding: 10px;
+      background: #2b2b2b;
+      border-radius: 8px;
+    }
+
+    .users {
+      flex: 1;
+      background: #1f1f1f;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.5);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-content: flex-start;
+      max-height: 80vh;
+      overflow-y: auto;
     }
 
     .userBubble {
@@ -34,39 +76,32 @@
       font-size: 24px;
       font-weight: bold;
       border: 3px solid transparent;
-      transition: border 0.2s;
+      transition: border 0.2s, transform 0.2s;
     }
 
     .talking {
       border-color: #00ff62;
-    }
-
-    .statusBox {
-      margin-top: 15px;
-      padding: 10px;
-      background: #2b2b2b;
-      border-radius: 8px;
+      transform: scale(1.2);
     }
   </style>
 </head>
 <body>
 
-<h2>Group Call 🎧📞</h2>
-<button id="joinBtn">Call starten</button>
-<button id="muteBtn">Mute</button>
-<button id="noiseBtn">Noise Suppression</button>
-<br><br>
-
-Threshold: <span id="thVal">10</span>
-<input type="range" min="1" max="60" value="10" id="thrRange">
-
-<div id="userList"></div>
-
-<div class="statusBox">
-  <b>Status:</b><br>
-  <span id="statusMute">🔇 Nicht gemutet</span><br>
-  <span id="statusNoise">🔊 Noise: AN</span>
+<div class="controls">
+  <h2>🎧 Voice Control</h2>
+  <button id="joinBtn">Call starten</button>
+  <button id="muteBtn">Mute</button>
+  <button id="noiseBtn">Noise Suppression</button>
+  <h3>Threshold: <span id="thVal">10</span></h3>
+  <input type="range" min="1" max="60" value="10" id="thrRange" class="slider">
+  <div class="statusBox">
+    <b>Status:</b><br>
+    <span id="statusMute">🔇 Nicht gemutet</span><br>
+    <span id="statusNoise">🔊 Noise: AN</span>
+  </div>
 </div>
+
+<div class="users" id="userList"></div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="https://unpkg.com/simple-peer@9.11.1/simplepeer.min.js"></script>
@@ -79,12 +114,9 @@ let noiseSuppression = true;
 let voiceThreshold = 10;
 let username;
 
-// Ask name
-username = localStorage.getItem("callName");
-if (!username) {
-  username = prompt("Dein Name?");
-  localStorage.setItem("callName", username);
-}
+// Name abfragen
+username = localStorage.getItem("callName") || prompt("Dein Name?");
+localStorage.setItem("callName", username);
 
 const userList = document.getElementById("userList");
 const muteBtn = document.getElementById("muteBtn");
@@ -100,16 +132,12 @@ thrRange.oninput = e => {
 };
 
 function createUserBubble(id, name) {
+  if(document.getElementById(`user-${id}`)) return;
   const div = document.createElement("div");
   div.className = "userBubble";
   div.id = `user-${id}`;
-
-  // Random background color
   div.style.background = `hsl(${Math.random() * 360}, 70%, 50%)`;
-
-  if(typeof name == "string" && name.length >= 1){
-    div.textContent = name[0].toUpperCase();
-  }
+  div.textContent = name[0].toUpperCase();
   userList.appendChild(div);
 }
 
@@ -120,89 +148,85 @@ function updateTalking(id, isTalking) {
   else el.classList.remove("talking");
 }
 
-// join call
 joinBtn.onclick = async () => {
-  localStream = await navigator.mediaDevices.getUserMedia({
-    audio: { noiseSuppression: true, echoCancellation: true }
-  });
+  localStream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: true, echoCancellation: true } });
 
   socket.emit("join", { name: username });
+
+  // Peers erzeugen wenn neue Nutzer joinen
+  socket.on("new-user", user => {
+    createPeer(user.id, true);
+    createUserBubble(user.id, user.name);
+  });
+
+  socket.on("user-list", list => {
+    userList.innerHTML = "";
+    list.forEach(u => createUserBubble(u.id, u.name));
+  });
+
+  socket.on("offer", ({ from, offer }) => {
+    const peer = new SimplePeer({ initiator: false, trickle: false, stream: localStream });
+    peers[from] = peer;
+
+    peer.on("signal", data => socket.emit("answer", { to: from, answer: data }));
+    peer.on("stream", stream => handleStream(from, stream));
+    peer.signal(offer);
+  });
+
+  socket.on("answer", ({ from, answer }) => {
+    peers[from]?.signal(answer);
+  });
 };
 
-socket.on("user-list", list => {
-  userList.innerHTML = "";
-  list.forEach(u => createUserBubble(u.id, u.name));
-});
+function createPeer(id, initiator) {
+  const peer = new SimplePeer({ initiator, trickle: false, stream: localStream });
+  peers[id] = peer;
 
-// peers\ 
-socket.on("offer", ({ from, offer }) => {
-  const peer = new SimplePeer({ initiator: false, trickle: false, stream: localStream });
-  peers[from] = peer;
+  peer.on("signal", data => socket.emit(initiator ? "offer" : "answer", { to: id, [initiator ? 'offer' : 'answer']: data }));
+  peer.on("stream", stream => handleStream(id, stream));
 
-  peer.on("signal", data => socket.emit("answer", { to: from, answer: data }));
-
-  peer.on("stream", stream => handleStream(from, stream));
-  peer.signal(offer);
-});
-
-socket.on("answer", ({ from, answer }) => {
-  peers[from]?.signal(answer);
-});
-
-socket.on("new-user", user => createUserBubble(user.id, user.name));
-
-socket.on("remove-user", id => {
-  const el = document.getElementById(`user-${id}`);
-  if (el) el.remove();
-  delete peers[id];
-});
+  return peer;
+}
 
 function handleStream(id, stream) {
-  const audio = new Audio();
+  const audio = document.createElement("audio");
   audio.srcObject = stream;
+  audio.autoplay = true;
   audio.play();
 
-  // voice detection
   const ctx = new AudioContext();
   const analyser = ctx.createAnalyser();
   const src = ctx.createMediaStreamSource(stream);
   src.connect(analyser);
-
   const data = new Uint8Array(analyser.frequencyBinCount);
 
   function tick() {
     analyser.getByteFrequencyData(data);
-    const volume = data.reduce((a, b) => a + b) / data.length;
-
-    updateTalking(id, volume > voiceThreshold);
+    const vol = data.reduce((a,b)=>a+b)/data.length;
+    updateTalking(id, vol > voiceThreshold);
     requestAnimationFrame(tick);
   }
   tick();
 }
 
-// Mute toggle
 muteBtn.onclick = () => {
   isMuted = !isMuted;
-  localStream.getAudioTracks()[0].enabled = !isMuted;
+  if(localStream) localStream.getAudioTracks()[0].enabled = !isMuted;
   statusMute.textContent = isMuted ? "🔈 Gemutet" : "🔇 Nicht gemutet";
 };
 
-// Noise Suppression toggle
 noiseBtn.onclick = async () => {
   noiseSuppression = !noiseSuppression;
+  if(localStream){
+    const newStream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression, echoCancellation: true } });
+    localStream.getTracks().forEach(t=>t.stop());
+    localStream = newStream;
 
-  let newStream = await navigator.mediaDevices.getUserMedia({
-    audio: { noiseSuppression, echoCancellation: true }
-  });
-
-  localStream.getTracks().forEach(t => t.stop());
-  localStream = newStream;
-
-  Object.values(peers).forEach(p => {
-    const sender = p._pc.getSenders().find(s => s.track.kind === "audio");
-    if (sender) sender.replaceTrack(localStream.getAudioTracks()[0]);
-  });
-
+    Object.values(peers).forEach(p => {
+      const sender = p._pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+      if(sender) sender.replaceTrack(localStream.getAudioTracks()[0]);
+    });
+  }
   statusNoise.textContent = noiseSuppression ? "🔊 Noise: AN" : "🔇 Noise: AUS";
 };
 </script>
