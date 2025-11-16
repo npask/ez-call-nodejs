@@ -137,7 +137,13 @@ function createUserBubble(id, name) {
   div.className = "userBubble";
   div.id = `user-${id}`;
   div.style.background = `hsl(${Math.random() * 360}, 70%, 50%)`;
-  div.textContent = name[0].toUpperCase();
+
+  if(typeof name === "string" && name.length > 0){
+    div.textContent = name[0].toUpperCase();
+  } else {
+    div.textContent = "?"; // Fallback wenn kein Name
+  }
+
   userList.appendChild(div);
 }
 
