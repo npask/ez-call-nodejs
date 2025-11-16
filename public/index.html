@@ -132,7 +132,8 @@ socket.on("user-list", list => {
   list.forEach(u => createUserBubble(u.id, u.name));
 });
 
-// peers\ socket.on("offer", ({ from, offer }) => {
+// peers\ 
+socket.on("offer", ({ from, offer }) => {
   const peer = new SimplePeer({ initiator: false, trickle: false, stream: localStream });
   peers[from] = peer;
 
