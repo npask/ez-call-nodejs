@@ -107,7 +107,9 @@ function createUserBubble(id, name) {
   // Random background color
   div.style.background = `hsl(${Math.random() * 360}, 70%, 50%)`;
 
-  div.textContent = name[0].toUpperCase();
+  if(name.length >= 1){
+    div.textContent = name[0].toUpperCase();
+  }
   userList.appendChild(div);
 }
 
